@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -41,11 +42,19 @@ def part_1():
         criterion=criterion,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        num_epochs=5,
+        num_epochs=10,
     )
-    torch.save(model.state_dict(), os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
+    torch.save(model, os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
 
-    generate_outputs(model, DEV_DATA, 'output.txt', vocab=vocab, tagset=tagset)
+    model.eval()
+    generate_outputs(model, DEV_DATA, 'output.txt', connl_eval=True,
+                     vocab=vocab, tagset=tagset)
+
+    # model = torch.load(os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
+    # model.eval()
+    #
+    # generate_outputs(model, DEV_DATA, 'dev1.out', connl_eval=True,
+    #                  vocab=vocab, tagset=tagset)
     return
 
 
@@ -80,12 +89,47 @@ def part_2():
         num_epochs=30,
     )
 
-    torch.save(model.state_dict(), os.path.join(SAVED_MODELS_PATH, 'blstm2.pt'))
+    torch.save(model, os.path.join(SAVED_MODELS_PATH, 'blstm2.pt'))
 
     generate_outputs(model, DEV_DATA, 'output.txt',
                      vocab=list(glove_vec.keys()), tagset=tagset)
     return
 
 
+def inference():
+    # TODO: Add inference for test set
+    # Inference for part 1
+    _, vocab, tagset, _ = read_data(TRAIN_DATA)
+
+    model = torch.load(os.path.join('saved_models', 'blstm1.pt'))
+    model.eval()
+
+    generate_outputs(model, DEV_DATA, 'dev1.out', connl_eval=False,
+                     vocab=vocab, tagset=tagset)
+
+    generate_outputs(model, TEST_DATA, 'test1.out', connl_eval=False,
+                     vocab=vocab, tagset=tagset, no_targets=True)
+
+    # Inference for part 2
+    _, _, tagset, _ = read_data(TRAIN_DATA)
+    glove_vec = load_glove_vec(GLOVE_PATH)
+
+    model = torch.load(os.path.join('saved_models', 'blstm2.pt'))
+    model.eval()
+
+    generate_outputs(model, DEV_DATA, 'dev2.out', connl_eval=False,
+                     vocab=list(glove_vec.keys()), tagset=tagset)
+    pass
+
+
 if __name__ == '__main__':
-    part_1()
+    args = sys.argv
+    assert len(args) == 2, "Must provide at least one action from " \
+                           "part_1, part_2, inference"
+
+    if args[1] == 'part_1':
+        part_1()
+    elif args[1] == 'part_2':
+        part_2()
+    elif args[1] == 'inference':
+        inference()

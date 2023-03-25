@@ -10,7 +10,7 @@ from sklearn.utils.class_weight import compute_class_weight
 import config as cfg
 
 
-def read_data(filepath, train_data=True):
+def read_data(filepath):
     min_freq_thresh = 1
     with open(filepath, 'r') as file:
         lines = file.readlines()
@@ -38,22 +38,16 @@ def read_data(filepath, train_data=True):
 
     words = ['<unk>']
 
-    # out_lines = []
     unknown_count = 0
 
     for i, (word, count) in enumerate(counts.items(), start=1):
         if count >= min_freq_thresh:
-            # out_lines.append(f"{word}\t{i}\t{count}\n")
             words.append(word)
         else:
             unknown_count += count
 
-    # out_lines.insert(0, f"{'<unk>'}\t{0}\t{unknown_count}\n")
-
-    # with open('vocab.txt', 'w') as file:
-    #     file.writelines(out_lines)
-
     tagset = list(set(tags))
+    tagset.sort()
     tag_weights = compute_class_weight(class_weight='balanced',
                                        classes=np.array(tagset), y=tags)
     tag_weights = np.insert(tag_weights, 0, 0)
@@ -107,14 +101,10 @@ class NERDataset(Dataset):
 
         # Calculate the padding length and pad the sentence
         n_words = len(sentence)
-        # pad_length = self.max_len - n_words
-        # padding = torch.nn.ConstantPad1d((0, pad_length), 0)
-        # sentence = padding(sentence)
 
         if not self.no_targets:
             targets = self.targets[idx]
             targets = torch.Tensor([self.tagset.index(i) for i in targets])
-            # targets = padding(targets)
             return (sentence, case_bool, n_words), \
                 targets.type(torch.LongTensor)
         else:
@@ -174,17 +164,21 @@ def collate_fn(data):
         pad_length = max_len - length
         padding = torch.nn.ConstantPad1d((0, pad_length), 0)
         sentence = padding(sentence)
-        target = padding(target)
-        case_bool = padding(case_bool)
-
         sentences_batched[i, :] = sentence
+
+        case_bool = padding(case_bool)
         case_batched[i, :] = case_bool
+
+        if target is not None:
+            target = padding(target)
+            targets_batched[i, :] = target
+
         lengths_batched.append(length)
-        targets_batched[i, :] = target
 
     sentences_batched = torch.Tensor(sentences_batched)
     case_batched = torch.Tensor(case_batched)
     lengths_batched = torch.Tensor(lengths_batched)
+
     targets_batched = torch.Tensor(targets_batched)
 
     return (sentences_batched, case_batched, lengths_batched), targets_batched
@@ -193,9 +187,6 @@ def collate_fn(data):
 def get_dataloaders(train_data, split=True, **kwargs):
 
     train_dataset = NERDataset(train_data, kwargs['vocab'], kwargs['tagset'])
-    # val_dataset = NERDataset(val_data, kwargs['vocab'], kwargs['tagset'])
-    # test_dataset = NERDataset(test_data, kwargs['vocab'], kwargs['tagset'],
-    #                           no_targets=True)
 
     if split:
         train_len = math.floor(0.8 * len(train_dataset))
@@ -215,8 +206,7 @@ def get_dataloaders(train_data, split=True, **kwargs):
         shuffle=True, collate_fn=collate_fn,
         generator=torch.Generator().manual_seed(cfg.RANDOM_SEED)
     )
-    # test_dataloader = DataLoader(test_dataset, batch_size=cfg.BATCH_SIZE,
-    #                              shuffle=False)
+
     if split:
         return train_dataloader, val_dataloader
     else:
@@ -261,9 +251,6 @@ def train_model(
             loss = criterion(outputs, y)
             loss.backward()
             optimizer.step()
-
-            # print(f"{torch.argmax(outputs, axis=1) = }")
-            # print(f"{y = }")
 
             # Calculate the accuracy
             metrics['train_acc'] += (

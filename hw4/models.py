@@ -20,7 +20,7 @@ class BLSTM(nn.Module):
                                                           padding_idx=0)
 
         self.lstm = nn.LSTM(
-            input_size=embedding_dim + 1,
+            input_size=embedding_dim + 1,  # +1 for case_bool
             hidden_size=kwargs.get('hidden_size', 256),
             num_layers=kwargs.get('num_layers', 1),
             bidirectional=True,
@@ -57,22 +57,22 @@ class BLSTM(nn.Module):
         return x
 
 
-if __name__ == '__main__':
-    model = BLSTM(1000, 3).to('cuda')
-    # x = torch.rand((4, 10)).type(torch.LongTensor)
-    x = torch.LongTensor([
-        [1, 3, 0, 0],
-        [1, 2, 3, 0],
-        [1, 1, 0, 0],
-        [1, 2, 3, 4]
-    ])
-    lengths = torch.Tensor([2, 3, 2, 4])
-    case_bool = torch.Tensor([
-        [0, 1, 0, 0],
-        [0, 1, 1, 0],
-        [1, 0, 0, 0],
-        [1, 0, 1, 1]
-    ])
-    x = x.to('cuda')
-    case_bool = case_bool.to('cuda')
-    print(model(x, case_bool, lengths).shape)
+# if __name__ == '__main__':
+#     model = BLSTM(1000, 3).to('cuda')
+#     # x = torch.rand((4, 10)).type(torch.LongTensor)
+#     x = torch.LongTensor([
+#         [1, 3, 0, 0],
+#         [1, 2, 3, 0],
+#         [1, 1, 0, 0],
+#         [1, 2, 3, 4]
+#     ])
+#     lengths = torch.Tensor([2, 3, 2, 4])
+#     case_bool = torch.Tensor([
+#         [0, 1, 0, 0],
+#         [0, 1, 1, 0],
+#         [1, 0, 0, 0],
+#         [1, 0, 1, 1]
+#     ])
+#     x = x.to('cuda')
+#     case_bool = case_bool.to('cuda')
+#     print(model(x, case_bool, lengths).shape)
