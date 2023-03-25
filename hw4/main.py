@@ -23,17 +23,17 @@ SAVED_MODELS_PATH = os.path.join(PROJECT_ROOT, 'saved_models')
 
 
 def part_1():
-    _, vocab, tagset, tag_weight = read_data(TRAIN_DATA)
+    _, vocab, tag_to_idx, idx_to_tag, tag_weight = read_data(TRAIN_DATA)
     tag_weight = torch.Tensor(tag_weight).to(cfg.DEVICE)
+    num_tags = len(tag_to_idx)
 
-    train_dataloader, val_dataloader = get_dataloaders(TRAIN_DATA,
-                                                       vocab=vocab,
-                                                       tagset=tagset)
+    train_dataloader, val_dataloader = get_dataloaders(
+        TRAIN_DATA, vocab=vocab, tagset=tag_to_idx, batch_size=cfg.BATCH_SIZE_1)
 
-    model = BLSTM(len(vocab), len(tagset), embedding_dim=100)
+    model = BLSTM(len(vocab), num_tags, embedding_dim=100)
 
-    criterion = nn.CrossEntropyLoss(weight=tag_weight, ignore_index=0)
-    optim = torch.optim.SGD(model.parameters(), lr=cfg.LEARNING_RATE,
+    criterion = nn.CrossEntropyLoss(weight=tag_weight, ignore_index=-1)
+    optim = torch.optim.SGD(model.parameters(), lr=cfg.LEARNING_RATE_1,
                             momentum=0.1)
 
     model, metrics = train_model(
@@ -42,43 +42,38 @@ def part_1():
         criterion=criterion,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        num_epochs=10,
+        num_epochs=20,
     )
     torch.save(model, os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
 
-    model.eval()
-    generate_outputs(model, DEV_DATA, 'output.txt', connl_eval=True,
-                     vocab=vocab, tagset=tagset)
-
-    # model = torch.load(os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
-    # model.eval()
-    #
-    # generate_outputs(model, DEV_DATA, 'dev1.out', connl_eval=True,
-    #                  vocab=vocab, tagset=tagset)
     return
 
 
 def part_2():
-    _, _, tagset, tag_weight = read_data(TRAIN_DATA)
+    _, vocab, tag_to_idx, idx_to_tag, tag_weight = read_data(TRAIN_DATA)
     glove_vec = load_glove_vec(GLOVE_PATH)
     word_embeddings = torch.Tensor(np.vstack(list(glove_vec.values())))
+    num_tags = len(tag_to_idx)
 
     tag_weight = torch.Tensor(tag_weight).to(cfg.DEVICE)
 
     train_dataloader, val_dataloader = get_dataloaders(
-        TRAIN_DATA, vocab=list(glove_vec.keys()), tagset=tagset
+        TRAIN_DATA, vocab=list(glove_vec.keys()), tagset=tag_to_idx,
+        batch_size=cfg.BATCH_SIZE_2
     )
 
     model = BLSTM(
         vocab_size=len(list(glove_vec.keys())),
-        tagset_size=len(tagset),
+        tagset_size=num_tags,
         embedding_dim=100,
         word_embeddings=word_embeddings
     )
 
-    criterion = nn.CrossEntropyLoss(weight=tag_weight, ignore_index=0)
-    optim = torch.optim.SGD(model.parameters(), lr=cfg.LEARNING_RATE,
-                            momentum=0.1)
+    criterion = nn.CrossEntropyLoss(weight=tag_weight, ignore_index=-1)
+    optim = torch.optim.SGD(model.parameters(), lr=cfg.LEARNING_RATE_2,
+                            momentum=0.5)
+    # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     optim, patience=2, factor=0.5)
 
     model, metrics = train_model(
         model=model,
@@ -87,39 +82,51 @@ def part_2():
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         num_epochs=30,
+        # lr_scheduler=lr_scheduler,
     )
 
     torch.save(model, os.path.join(SAVED_MODELS_PATH, 'blstm2.pt'))
 
-    generate_outputs(model, DEV_DATA, 'output.txt',
-                     vocab=list(glove_vec.keys()), tagset=tagset)
     return
 
 
 def inference():
-    # TODO: Add inference for test set
     # Inference for part 1
-    _, vocab, tagset, _ = read_data(TRAIN_DATA)
+    print("****** PART 1 ******")
+    _, vocab, tag_to_idx, idx_to_tag, _ = read_data(TRAIN_DATA)
 
-    model = torch.load(os.path.join('saved_models', 'blstm1.pt'))
+    model = torch.load(os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
+    print("INFO: Successfully loaded model")
     model.eval()
 
-    generate_outputs(model, DEV_DATA, 'dev1.out', connl_eval=False,
-                     vocab=vocab, tagset=tagset)
+    print("INFO: Running inference on the dev set")
+    generate_outputs(model, DEV_DATA, 'dev1.out', connl_eval=True,
+                     vocab=vocab, idx_to_tag=idx_to_tag, tag_to_idx=tag_to_idx)
 
+    print("INFO: Running inference on the test set")
     generate_outputs(model, TEST_DATA, 'test1.out', connl_eval=False,
-                     vocab=vocab, tagset=tagset, no_targets=True)
+                     vocab=vocab, idx_to_tag=idx_to_tag, tag_to_idx=tag_to_idx,
+                     no_targets=True)
 
     # Inference for part 2
-    _, _, tagset, _ = read_data(TRAIN_DATA)
+    print("****** PART 2 ******")
+    _, vocab, tag_to_idx, idx_to_tag, _ = read_data(TRAIN_DATA)
     glove_vec = load_glove_vec(GLOVE_PATH)
 
-    model = torch.load(os.path.join('saved_models', 'blstm2.pt'))
+    model = torch.load(os.path.join(SAVED_MODELS_PATH, 'blstm2.pt'))
+    print("INFO: Successfully loaded model")
     model.eval()
 
-    generate_outputs(model, DEV_DATA, 'dev2.out', connl_eval=False,
-                     vocab=list(glove_vec.keys()), tagset=tagset)
-    pass
+    print("INFO: Running inference on the dev set")
+    generate_outputs(model, DEV_DATA, 'dev2.out', connl_eval=True,
+                     vocab=list(glove_vec.keys()), idx_to_tag=idx_to_tag,
+                     tag_to_idx=tag_to_idx)
+
+    print("INFO: Running inference on the test set")
+    generate_outputs(model, TEST_DATA, 'test2.out', connl_eval=False,
+                     vocab=vocab, idx_to_tag=idx_to_tag, tag_to_idx=tag_to_idx,
+                     no_targets=True)
+    return
 
 
 if __name__ == '__main__':

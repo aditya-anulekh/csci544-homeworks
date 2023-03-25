@@ -6,11 +6,13 @@ from tqdm import tqdm
 from torch.utils.data import (
     Dataset, DataLoader, random_split, SequentialSampler
 )
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.utils.class_weight import compute_class_weight
 import config as cfg
 
 
 def read_data(filepath):
+    print(f"INFO: Reading data from {filepath}")
     min_freq_thresh = 1
     with open(filepath, 'r') as file:
         lines = file.readlines()
@@ -48,14 +50,15 @@ def read_data(filepath):
 
     tagset = list(set(tags))
     tagset.sort()
-    tag_weights = compute_class_weight(class_weight='balanced',
-                                       classes=np.array(tagset), y=tags)
-    tag_weights = np.insert(tag_weights, 0, 0)
-    tagset.insert(0, '<PAD>')
+    tag_to_idx = {tag: i for i, tag in enumerate(tagset)}
+    idx_to_tag = {i: tag for tag, i in tag_to_idx.items()}
+    tag_weights = compute_class_weight(
+        class_weight='balanced',
+        classes=np.array(list(tag_to_idx.keys())),
+        y=tags)
+    tagset.__setitem__(-1, '<PAD>')
 
-    print(f"Number of words in vocabulary: {len(words) - 1}")
-    print(f"Number of occurrences of <unk>: {unknown_count}")
-    return lines, words, tagset, tag_weights
+    return lines, words, tag_to_idx, idx_to_tag, tag_weights
 
 
 def load_glove_vec(filepath):
@@ -104,7 +107,7 @@ class NERDataset(Dataset):
 
         if not self.no_targets:
             targets = self.targets[idx]
-            targets = torch.Tensor([self.tagset.index(i) for i in targets])
+            targets = torch.Tensor([self.tagset[i] for i in targets])
             return (sentence, case_bool, n_words), \
                 targets.type(torch.LongTensor)
         else:
@@ -158,11 +161,11 @@ def collate_fn(data):
     lengths_batched = []
     targets_batched = torch.zeros((batch_size, max_len), dtype=torch.long)
 
-    # TODO: Fix for cases that don't have a target
     for i, ((sentence, case_bool, length), target) in enumerate(data):
         # Calculate the padding length and pad the sentence
         pad_length = max_len - length
         padding = torch.nn.ConstantPad1d((0, pad_length), 0)
+        tag_padding = torch.nn.ConstantPad1d((0, pad_length), -1)
         sentence = padding(sentence)
         sentences_batched[i, :] = sentence
 
@@ -170,7 +173,7 @@ def collate_fn(data):
         case_batched[i, :] = case_bool
 
         if target is not None:
-            target = padding(target)
+            target = tag_padding(target)
             targets_batched[i, :] = target
 
         lengths_batched.append(length)
@@ -196,13 +199,13 @@ def get_dataloaders(train_data, split=True, **kwargs):
             [train_len, val_len],
             torch.Generator().manual_seed(cfg.RANDOM_SEED))
         val_dataloader = DataLoader(
-            val_dataset, batch_size=cfg.BATCH_SIZE,
+            val_dataset, batch_size=kwargs.get('batch_size', 128),
             shuffle=False, collate_fn=collate_fn,
             generator=torch.Generator().manual_seed(cfg.RANDOM_SEED)
         )
 
     train_dataloader = DataLoader(
-        train_dataset, batch_size=cfg.BATCH_SIZE,
+        train_dataset, batch_size=kwargs.get('batch_size', 128),
         shuffle=True, collate_fn=collate_fn,
         generator=torch.Generator().manual_seed(cfg.RANDOM_SEED)
     )
@@ -222,7 +225,7 @@ def train_model(
         num_epochs=30,
         lr_scheduler=None
 ):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = cfg.DEVICE
 
     model = model.to(device)
 
@@ -235,6 +238,7 @@ def train_model(
             'val_loss': 0.0
         }
 
+        # Training loop
         for i, ((X, case, lengths), y) in enumerate(tqdm(train_dataloader)):
             model.train()
             # Zero optim gradients
@@ -253,40 +257,43 @@ def train_model(
             optimizer.step()
 
             # Calculate the accuracy
-            metrics['train_acc'] += (
-                        torch.argmax(outputs, axis=1) == y).float().sum()
+            metrics['train_acc'] += \
+                (torch.argmax(outputs, axis=1) == y).float().sum() / sum(lengths)
 
             # Calculate the loss
             metrics['train_loss'] += loss
 
-        metrics['train_acc'] /= (
-                    len(train_dataloader) * train_dataloader.batch_size)
-        metrics['train_loss'] /= (
-                    len(train_dataloader) * train_dataloader.batch_size)
+        metrics['train_acc'] /= len(train_dataloader)
+        metrics['train_loss'] /= len(train_dataloader)
+
+        # Validation loop
+        for i, ((X, case, lengths), y) in enumerate(tqdm(val_dataloader)):
+            model.eval()
+
+            # Move to GPU
+            X = X.to(device)  # (batch_size, seq_len)
+            y = y.to(device)  # (batch_size, num_cls)
+            case = case.to(device)
+
+            # Forward pass
+            outputs = model(X, case, lengths)  # (batch_size, seq_len, num_cls)
+            outputs = outputs.permute(0, 2, 1)  # (batch_size, num_cls, seq_len)
+
+            # Calculate the accuracy
+            metrics['val_acc'] += \
+                (torch.argmax(outputs, axis=1) == y).float().sum() / sum(lengths)
+
+            # Calculate the loss
+            metrics['val_loss'] += loss
 
         if lr_scheduler is not None:
-            lr_scheduler.step()
+            if isinstance(lr_scheduler, ReduceLROnPlateau):
+                lr_scheduler.step(metrics['val_loss'])
+            else:
+                lr_scheduler.step()
 
-        # for i, (X, y) in enumerate(tqdm(val_dataloader)):
-        #     model.eval()
-        #
-        #     # Move to GPU
-        #     X = X.to(device)
-        #     y = y.to(device)
-        #
-        #     # Forward pass
-        #     outputs = model(X)
-        #     loss = criterion(outputs, y)
-        #
-        #     # Calculate the accuracy
-        #     metrics['val_acc'] += (
-        #                 torch.argmax(outputs, axis=1) == y).float().sum()
-        #
-        #     # Calculate the loss
-        #     metrics['val_loss'] += loss
-        #
-        # metrics['val_acc'] /= (len(val_dataloader) * val_dataloader.batch_size)
-        # metrics['val_loss'] /= (len(val_dataloader) * val_dataloader.batch_size)
+        metrics['val_acc'] /= len(val_dataloader)
+        metrics['val_loss'] /= len(val_dataloader)
 
         print(f"Epoch: {epoch + 1}/{num_epochs}")
         print("Mode\tLoss\tAcc")
@@ -305,11 +312,12 @@ def generate_outputs(model, test_file, out_file,
         pass
 
     vocab = kwargs['vocab']
-    tagset = kwargs['tagset']
+    tag_to_idx = kwargs['tag_to_idx']
+    idx_to_tag = kwargs['idx_to_tag']
     test_dataset = NERDataset(test_file, vocab,
-                              tagset, no_targets)
+                              tag_to_idx, no_targets)
     sampler = SequentialSampler(test_dataset)
-    test_dataloader = DataLoader(test_dataset, batch_size=cfg.BATCH_SIZE,
+    test_dataloader = DataLoader(test_dataset, batch_size=cfg.BATCH_SIZE_1,
                                  shuffle=False, collate_fn=collate_fn,
                                  sampler=sampler)
 
@@ -329,15 +337,16 @@ def generate_outputs(model, test_file, out_file,
         with open(out_file, 'a') as file:
             for j in range(len(output)):
                 for k in range(int(lengths[j])):
-                    sentence_idx = i * cfg.BATCH_SIZE + j
+                    sentence_idx = i * cfg.BATCH_SIZE_1 + j
                     if connl_eval:
                         file.write(
                             f'{k + 1} {test_dataset.sentences[sentence_idx][k]}'
-                            f' {tagset[y[j][k]]} {tagset[output[j][k]]}\n')
+                            f' {idx_to_tag[int(y[j][k])]} '
+                            f'{idx_to_tag[int(output[j][k])]}\n')
                     else:
                         file.write(
                             f'{k + 1} {test_dataset.sentences[sentence_idx][k]}'
-                            f' {tagset[output[j][k]]}\n')
+                            f' {idx_to_tag[int(output[j][k])]}\n')
                 file.write('\n')
 
     pass

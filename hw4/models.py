@@ -31,9 +31,14 @@ class BLSTM(nn.Module):
             in_features=2*kwargs.get('hidden_size', 256),
             out_features=128
         )
-        self.classifier = nn.Linear(
-            in_features=128,
-            out_features=self.tagset_size
+        # self.classifier = nn.Linear(
+        #     in_features=128,
+        #     out_features=self.tagset_size
+        # )
+        self.classifier = nn.Sequential(
+            nn.Linear(in_features=128, out_features=self.tagset_size),
+            # nn.ReLU(),
+            # nn.Linear(in_features=64, out_features=self.tagset_size)
         )
         self.elu = nn.ELU()
 
