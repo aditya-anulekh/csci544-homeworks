@@ -18,7 +18,7 @@ DATA_ROOT = os.path.join(PROJECT_ROOT, 'data')
 TRAIN_DATA = os.path.join(DATA_ROOT, 'train')
 DEV_DATA = os.path.join(DATA_ROOT, 'dev')
 TEST_DATA = os.path.join(DATA_ROOT, 'test')
-GLOVE_PATH = os.path.join(PROJECT_ROOT, 'glove.6B.100d.txt')
+GLOVE_PATH = os.path.join(PROJECT_ROOT, 'glove.6B.100d')
 SAVED_MODELS_PATH = os.path.join(PROJECT_ROOT, 'saved_models')
 
 
@@ -44,6 +44,7 @@ def part_1():
         val_dataloader=val_dataloader,
         num_epochs=20,
     )
+
     torch.save(model, os.path.join(SAVED_MODELS_PATH, 'blstm1.pt'))
 
     return
@@ -100,11 +101,11 @@ def inference():
     model.eval()
 
     print("INFO: Running inference on the dev set")
-    generate_outputs(model, DEV_DATA, 'dev1.out', connl_eval=True,
+    generate_outputs(model, DEV_DATA, 'dev1.out', conll_eval=False,
                      vocab=vocab, idx_to_tag=idx_to_tag, tag_to_idx=tag_to_idx)
 
     print("INFO: Running inference on the test set")
-    generate_outputs(model, TEST_DATA, 'test1.out', connl_eval=False,
+    generate_outputs(model, TEST_DATA, 'test1.out', conll_eval=False,
                      vocab=vocab, idx_to_tag=idx_to_tag, tag_to_idx=tag_to_idx,
                      no_targets=True)
 
@@ -118,18 +119,22 @@ def inference():
     model.eval()
 
     print("INFO: Running inference on the dev set")
-    generate_outputs(model, DEV_DATA, 'dev2.out', connl_eval=True,
+    generate_outputs(model, DEV_DATA, 'dev2.out', conll_eval=False,
                      vocab=list(glove_vec.keys()), idx_to_tag=idx_to_tag,
                      tag_to_idx=tag_to_idx)
 
     print("INFO: Running inference on the test set")
-    generate_outputs(model, TEST_DATA, 'test2.out', connl_eval=False,
-                     vocab=vocab, idx_to_tag=idx_to_tag, tag_to_idx=tag_to_idx,
-                     no_targets=True)
+    generate_outputs(model, TEST_DATA, 'test2.out', conll_eval=False,
+                     vocab=list(glove_vec.keys()), idx_to_tag=idx_to_tag,
+                     tag_to_idx=tag_to_idx, no_targets=True)
     return
 
 
 if __name__ == '__main__':
+    # Create directories
+    os.makedirs(SAVED_MODELS_PATH, exist_ok=True)
+
+    # Read system args
     args = sys.argv
     assert len(args) == 2, "Must provide at least one action from " \
                            "part_1, part_2, inference"

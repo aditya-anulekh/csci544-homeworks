@@ -10,4 +10,4 @@ LEARNING_RATE_1 = 1.5
 
 # Part 2 hyperparameters
 BATCH_SIZE_2 = 64
-LEARNING_RATE_2 = 1
+LEARNING_RATE_2 = 0.8

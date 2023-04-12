@@ -12,6 +12,12 @@ import config as cfg
 
 
 def read_data(filepath):
+    """
+    Reads data from the given filepath and returns vocab, tagset and
+    class weights
+    :param filepath: str
+    :return: tuple(lines, vocab, tag_to_idx, idx_to_tag, tag_weights)
+    """
     print(f"INFO: Reading data from {filepath}")
     min_freq_thresh = 1
     with open(filepath, 'r') as file:
@@ -62,6 +68,11 @@ def read_data(filepath):
 
 
 def load_glove_vec(filepath):
+    """
+    Loads GloVe vectors from the given file path
+    :param filepath: str
+    :return: dict
+    """
     glove_vec = {'<unk>': np.zeros(100)}
     with open(filepath, 'r') as file:
         lines = file.readlines()
@@ -84,7 +95,6 @@ class NERDataset(Dataset):
         self.tagset = tagset                # Unique tags
 
         self.sentences, self.targets = self.get_sentences()
-        self.max_len = len(max(self.sentences, key=len))
         self.vocab_map = {word: i for (i, word) in enumerate(self.vocab)}
 
     def __len__(self):
@@ -188,6 +198,15 @@ def collate_fn(data):
 
 
 def get_dataloaders(train_data, split=True, **kwargs):
+    """
+    Function to create dataloaders on the dataset.
+    vocab and tagset expected to be present in kwargs
+    If split is set to True, performs an 80-20 train, val split by default
+    :param train_data: str
+    :param split: bool
+    :param kwargs:
+    :return: tuple(train_dataloader, [val_dataloader, None])
+    """
 
     train_dataset = NERDataset(train_data, kwargs['vocab'], kwargs['tagset'])
 
@@ -225,6 +244,17 @@ def train_model(
         num_epochs=30,
         lr_scheduler=None
 ):
+    """
+    Function to train a given nn.Module model
+    :param model: nn.Module
+    :param optimizer: torch.optim.SGD or similar
+    :param criterion: nn.CrossEntropyLoss or similar
+    :param train_dataloader: torch.utils.data.DataLoader
+    :param val_dataloader: torch.utils.data.DataLoader
+    :param num_epochs: int
+    :param lr_scheduler: torch.optim.lr_scheduler.StepLR or None or similar
+    :return: tuple(model, metrics)
+    """
     device = cfg.DEVICE
 
     model = model.to(device)
@@ -304,7 +334,20 @@ def train_model(
 
 
 def generate_outputs(model, test_file, out_file,
-                     no_targets=False, connl_eval=False, **kwargs):
+                     no_targets=False, conll_eval=False, **kwargs):
+    """
+    Function to generate outputs given a model and a test set
+    vocab, tag_to_idx, idx_to_tag expected to be present in kwargs
+    NOTE: WILL DELETE EXISTING OUTPUT FILE!!
+
+    :param model: nn.Module
+    :param test_file: str
+    :param out_file: str
+    :param no_targets: bool (set to False for test set)
+    :param conll_eval: bool (set to True if CoNLL evaluation format required)
+    :param kwargs:
+    :return: None
+    """
     # Remove the out file if it already exists
     try:
         os.remove(out_file)
@@ -338,7 +381,7 @@ def generate_outputs(model, test_file, out_file,
             for j in range(len(output)):
                 for k in range(int(lengths[j])):
                     sentence_idx = i * cfg.BATCH_SIZE_1 + j
-                    if connl_eval:
+                    if conll_eval:
                         file.write(
                             f'{k + 1} {test_dataset.sentences[sentence_idx][k]}'
                             f' {idx_to_tag[int(y[j][k])]} '
@@ -349,17 +392,4 @@ def generate_outputs(model, test_file, out_file,
                             f' {idx_to_tag[int(output[j][k])]}\n')
                 file.write('\n')
 
-    pass
-
-
-if __name__ == '__main__':
-    # train_file = 'data/train'
-    # l, w, t, _ = read_data(train_file)
-    # dataset = NERDataset(train_file, w, t)
-    #
-    # tl, vl = get_dataloaders(train_file, vocab=w, tagset=t)
-    # print(next(iter(tl)).shape)
-    # print(next(iter(vl)).shape)
-    gv = load_glove_vec('glove.6B.100d.txt')
-    print(torch.Tensor(np.vstack(list(gv.values()))).shape)
-    print(gv['<unk>'])
+    return

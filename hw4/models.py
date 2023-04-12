@@ -44,40 +44,21 @@ class BLSTM(nn.Module):
 
     def forward(self, sentences, case_bool, lengths):
         # Get embeddings for sentences and create a PackedSequence
-        x = self.embedding(sentences)
+        x = self.embedding(sentences)  # (batch_size, seq_length, 100)
+
+        # (batch_size, seq_length) -> (batch_size, seq_length, 1)
         case_bool = torch.unsqueeze(case_bool, dim=2)
-        x = torch.cat([x, case_bool], dim=2)
-        x = pack_padded_sequence(x, lengths,
-                                 batch_first=True, enforce_sorted=False)
-        # sequence_order = x.unsorted_indices
+
+        x = torch.cat([x, case_bool], dim=2)  # (batch_size, seq_length, emb+1)
+        x = pack_padded_sequence(x, lengths, batch_first=True,
+                                 enforce_sorted=False)
 
         x, _ = self.lstm(x)
         x, _ = pad_packed_sequence(x, batch_first=True)
+        x = self.dropout(x)
 
         x = self.linear(x)
         x = self.elu(x)
         x = self.classifier(x)
 
-        # x = x[sequence_order, :, :]
         return x
-
-
-# if __name__ == '__main__':
-#     model = BLSTM(1000, 3).to('cuda')
-#     # x = torch.rand((4, 10)).type(torch.LongTensor)
-#     x = torch.LongTensor([
-#         [1, 3, 0, 0],
-#         [1, 2, 3, 0],
-#         [1, 1, 0, 0],
-#         [1, 2, 3, 4]
-#     ])
-#     lengths = torch.Tensor([2, 3, 2, 4])
-#     case_bool = torch.Tensor([
-#         [0, 1, 0, 0],
-#         [0, 1, 1, 0],
-#         [1, 0, 0, 0],
-#         [1, 0, 1, 1]
-#     ])
-#     x = x.to('cuda')
-#     case_bool = case_bool.to('cuda')
-#     print(model(x, case_bool, lengths).shape)
